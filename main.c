@@ -15,12 +15,22 @@
  * PC4 -> NOS AJUSTES: INCREMENTA A VARIÁVEL EM QUE ESTÁ APONTADO O "CURSOR"
  */
 
+/*
+ TAREFAS:
+ * - TER UM OUTRO TIMER PARA LIDAR APENAS COM AS EXIBIÇÕES E DESENVOLVER AS FUNCIONALIDADES
+ * - MODO DE INCREMENTO POR INTERRUPÇÃO EM PC4
+ * - MODULARIZAR POR MAPEAMENTO AS FUNÇÕES EM executar_funcoes
+ * - TER O TRATAMENTO DA EXIBIÇÃO EM APENAS UM TIMER
+ */
+
 // MACROS PARA TRATAMENTO DE BITS NOS REGISTRADORES
 #define test_bit(y, bit)    (y & (1 << bit))
 
 // PROTÓTIPOS
+ISR(TIMER0_OVF_vect);
 ISR(TIMER1_OVF_vect);
 ISR(PCINT0_vect);
+ISR(PCINT1_vect);
 void executar_modo(int modo);
 
 // VARIÁVEIS GLOBAIS
@@ -31,7 +41,9 @@ volatile char buffer[9] = "        ";
 volatile unsigned int modo = 0;
 volatile unsigned int exibir_numero = 0;
 volatile unsigned int cursor = SECAO_HORA;
+volatile unsigned int contador_timer0 = 0;
 char modos[][13] = {"HORARIO     ", "ALT. ALARME ", "ALT. HORARIO"};
+
 
 int main(void) {    
   // DISPLAY LCD
@@ -45,11 +57,15 @@ int main(void) {
   PORTB = 0b00010000;
   
   // INTERRUPÇÕES 
-  PCICR = 0b00000001; // habilitando interrupção do PORTB
+  PCICR = 0b00000011; // habilitando interrupção do PORTB e PORTC
   PCMSK0 = 0b00010000; // habilitando interrupção do pino PB4
-  TCCR1B = 0b00000101; // prescaler 1024
-  TIMSK1 = 0b00000001; // habilitando interrupção do timer por overflow
-  TCNT1 = 49911; // contagem para overflow em 1 seg.
+  PCMSK1 = 0b00010100;
+  TCCR0B = 0b00000101; // prescaler 1024 do timer 0
+  TIMSK0 = 0b00000001; // habilitando interrupção do timer 0 por overflow
+  TCCR1B = 0b00000101;  
+  TIMSK1 = 0b00000001;
+  TCNT0 = 100; // contagem para overflow em 10 us.
+  TCNT1 = 49911; // contagem para overflow em 1 s.
   sei(); // habilitando chave geral de interrupções
   
   // LCD    
@@ -59,9 +75,20 @@ int main(void) {
   }
 }
 
+ISR(TIMER0_OVF_vect) {
+  // DESCRIÇÃO: CONTROLE DA TAXA DE EXIBIÇÃO DO MODO A CADA 0,5 SEGUNDOS
+  TCNT0 = 100;
+  contador_timer0++;
+  if (contador_timer0 == 50) {
+    contador_timer0 = 0; 
+    executar_modo(modo);
+  }
+  
+}
+
 ISR(TIMER1_OVF_vect) {
-  TCNT1 = 49911;  
-  executar_modo(modo);
+  // DESCRIÇÃO: INTERRUPÇÃO DO TIMER PARA INCREMENTO DO HORÁRIO
+  TCNT1 = 49911;    
   segundo++;
   if (segundo == 60) {
     segundo = 0;
@@ -77,11 +104,20 @@ ISR(TIMER1_OVF_vect) {
 }
 
 ISR(PCINT0_vect) {
+  // DESCRIÇÃO: CONTROLE DO ESTADO DE QUAL MODO SERÁ EXIBIDO
   if (!test_bit(PINB, PB4)) {
     modo++;
     if (modo == 3) modo = 0;
-    
   }
+}
+
+ISR(PCINT1_vect) {
+  // DESCRIÇÃO: CONTROLE DO MAPEAMETO DO CURSOR PISCANTE E DO INCREMENTO DO
+  //            NÚMERO DA SEÇÃO CUJO CURSOR ESTÁ APONTANDO
+  if (!test_bit(PINC, PC2)) {
+    cursor = !cursor; // seu mapeamento é entre os números 0 e 1      
+  }
+  if (!test_bit(PINC, PC4)) break;
 }
 
 void executar_modo(int modo) {
@@ -98,7 +134,7 @@ void executar_modo(int modo) {
           sprintf(buffer, "  :%.2d:%.2d", minuto, segundo);
         }
         else if (cursor == SECAO_MINUTO) {
-          sprintf(buffer, "%.2d:  :%.2d", hora, minuto, segundo);
+          sprintf(buffer, "%.2d:  :%.2d", hora, segundo);
         }
       }
       else {              
