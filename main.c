@@ -29,15 +29,16 @@ void blink_cursor();
 void acionar_alarme();
 void desacionar_alarme();
 void exibir_modo(int modo);
-void incrementar_horario();
+void direcionar_incremento_de_horario();
 void atualizar_exibicao(volatile unsigned int arg_hora, volatile unsigned int arg_minuto);
 void tratamento_de_horario(volatile unsigned int *arg_hora, volatile unsigned int *arg_minuto);
+void incremento_e_tratamento_de_horario(volatile unsigned int *arg_hora, volatile unsigned int *arg_minuto);
 
 // VARIÁVEIS GLOBAIS
 volatile unsigned int hora = 0, minuto = 0, segundo = 0;
 volatile unsigned int hora_exib = 0, minuto_exib = 0;
 volatile unsigned int hora_alarme = 0, minuto_alarme = 0;
-volatile unsigned int hora_tmp, minuto_tmp;
+volatile unsigned int hora_tmp = 0, minuto_tmp = 0;
 volatile unsigned int modo = 0;
 volatile unsigned int exibir_numero = 0;
 volatile unsigned char cursor = SECAO_HORA;
@@ -73,12 +74,11 @@ int main(void) {
   // LCD    
   inic_LCD_4bits();
   
-  hora = 16;
+  hora = 24;
   minuto = 00;
   hora_alarme = 13;
   minuto_alarme = 30;
-  
-  
+    
   while (1) {
     if (hora_alarme == hora && minuto_alarme == minuto) {
       acionar_alarme();
@@ -90,14 +90,15 @@ int main(void) {
 
 // TRTAMENTO DE INTERRUPÇÕES
 ISR(TIMER0_OVF_vect) {
-  // DESCRIÇÃO: CONTROLE DA TAXA DE EXIBIÇÃO DO MODO
+  // DESCRIÇÃO: CONTROLE DA TAXA DE EXIBIÇÃO DO MODO E DO INCREMENTO CONTÍNUO PELO USUÁRIO
   TCNT0 = 100;
   contador_timer0++;
   if (!test_bit(PINC, PC3)) {
+    // ESSE BLOCO: IRÁ INCREMENTAR A UMA TAXA "CONTINUA" ENQUANTO O BOTÃO FOR PRESSIONADO
     contador_incremento++;
     if (contador_incremento == FLAG_INCREMENTO) {
       contador_incremento = 0;
-      incrementar_horario();
+      direcionar_incremento_de_horario();
     }
   }
   if (contador_timer0 == FLAG_EXIBICAO) {
@@ -107,16 +108,16 @@ ISR(TIMER0_OVF_vect) {
 }
 
 ISR(TIMER1_OVF_vect) {
-  // DESCRIÇÃO: CONTROLE PARA INCREMENTO DO HORÁRIO
+  // DESCRIÇÃO: CONTROLE PARA INCREMENTO AUTOMÁTICO DO HORÁRIO
   TCNT1 = 49911;    
   segundo++;
-  if (segundo == 60) {
+  if (segundo > 59) {
     segundo = 0;
     minuto++;
-    if (minuto == 60) {
+    if (minuto > 59) {
       minuto = 0;
       hora++;
-      if (hora == 60) {
+      if (hora > 23) {
         hora = 0;
       }
     }    
@@ -133,8 +134,8 @@ ISR(PCINT0_vect) {
 }
 
 ISR(PCINT1_vect) {
-  // DESCRIÇÃO: CONTROLE DO MAPEAMETO DO CURSOR PISCANTE E DA FINALIZAÇÃO DO
-  //            INCREMENTO DO NÚMERO DA SEÇÃO CUJO CURSOR ESTÁ APONTANDO
+  // DESCRIÇÃO: CONTROLE DO MAPEAMETO DO CURSOR PISCANTE E DA FINALIZAÇÃO PELO
+  //            USUÁRIO DO INCREMENTO DO NÚMERO DA SEÇÃO CUJO CURSOR ESTÁ APONTANDO
   if (!test_bit(PINC, PC2)) {
     cursor = !cursor; // seu mapeamento é entre os números 0 e 1      
   }  
@@ -144,26 +145,29 @@ ISR(PCINT1_vect) {
 }
 
 // FUNÇÕES AUXILIARES
-void incrementar_horario() {
-  hora_tmp = minuto_tmp = 0;
+void direcionar_incremento_de_horario() {
+  hora_tmp = minuto_tmp = 0; // variáveis temporárias
   if (cursor == SECAO_HORA) hora_tmp++;
   else minuto_tmp++;
   if (modo == ALTERAR_ALARME) {      
-    tratamento_de_horario(&hora_alarme, &minuto_alarme);
+    incremento_e_tratamento_de_horario(&hora_alarme, &minuto_alarme);
   }
   else if (modo == ALTERAR_HORARIO) {
-    tratamento_de_horario(&hora, &minuto);
+    incremento_e_tratamento_de_horario(&hora, &minuto);
   }
 }
 
-void tratamento_de_horario(volatile unsigned int *arg_hora, volatile unsigned int *arg_minuto) {
+void incremento_e_tratamento_de_horario(volatile unsigned int *arg_hora, volatile unsigned int *arg_minuto) {
   *arg_hora += hora_tmp;
   *arg_minuto += minuto_tmp;
-  if (*arg_minuto == 60) {
+  tratamento_de_horario(arg_hora, arg_minuto);
+}
+
+void tratamento_de_horario(volatile unsigned int *arg_hora, volatile unsigned int *arg_minuto) {
+  if (*arg_minuto > 59) {
     *arg_minuto = 0;
-    *arg_hora = *arg_hora + 1;
   }
-  if (*arg_hora == 24) *arg_hora = 0;  
+  if (*arg_hora > 23) *arg_hora = 0;  
 }
 
 void exibir_modo(int modo) {
@@ -172,6 +176,7 @@ void exibir_modo(int modo) {
   cmd_LCD(0xC0, 0);  
   switch (modo) {
     case EXIBIR_HORARIO:
+      tratamento_de_horario(&hora, &minuto);
       sprintf(buffer, "%.2d:%.2d:%.2d", hora, minuto, segundo);
       break;
     case ALTERAR_ALARME:
@@ -185,8 +190,9 @@ void exibir_modo(int modo) {
 }
 
 void atualizar_exibicao(volatile unsigned int arg_hora, volatile unsigned int arg_minuto) {
+  tratamento_de_horario(&arg_hora, &arg_minuto);
   hora_exib = arg_hora;
-  minuto_exib = arg_minuto;
+  minuto_exib = arg_minuto;  
   if (!test_bit(PINC, PC3)) {
     sprintf(buffer, "%.2d:%.2d:%.2d", hora_exib, minuto_exib, segundo); 
   }
