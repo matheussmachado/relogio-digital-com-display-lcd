@@ -25,6 +25,8 @@
 
 // MACROS PARA TRATAMENTO DE BITS NOS REGISTRADORES
 #define test_bit(y, bit)    (y & (1 << bit))
+#define set_bit(y, bit)     (y |= (1 << bit))
+#define clear_bit(y, bit)   (y &= ~(1 << bit))
 
 // PROTÓTIPOS
 ISR(TIMER0_OVF_vect);
@@ -33,8 +35,10 @@ ISR(PCINT0_vect);
 ISR(PCINT1_vect);
 void exibir_modo(int modo);
 void blink_cursor();
-void tratamento_de_horario(volatile unsigned int *hora, volatile unsigned int *minuto);
-void atualizar_exibicao(volatile unsigned int hora, volatile unsigned int minuto);
+void acionar_alarme();
+void desacionar_alarme();
+void tratamento_de_horario(volatile unsigned int *arg_hora, volatile unsigned int *arg_minuto);
+void atualizar_exibicao(volatile unsigned int arg_hora, volatile unsigned int arg_minuto);
 
 // VARIÁVEIS GLOBAIS
 volatile unsigned int hora = 0, minuto = 0, segundo = 0;
@@ -51,7 +55,7 @@ char modos[][13] = {"HORARIO     ", "ALT. ALARME ", "ALT. HORARIO"};
 
 int main(void) {    
   // DISPLAY LCD
-  DDRD = 0xFF;
+  DDRD = 0b11111000;
   PORTD = 0x00;
   
   // PUSH BUTTONS
@@ -80,6 +84,10 @@ int main(void) {
   minuto = 55;
   
   while (1) {
+    if (hora_alarme == hora && minuto_alarme == minuto) {
+      PORTD |= (1 << 3);
+    }
+    else PORTD &= ~(1 << 3);
   }
 }
 
@@ -138,14 +146,14 @@ ISR(PCINT1_vect) {
   }
 }
 
-void tratamento_de_horario(volatile unsigned int *hora, volatile unsigned int *minuto) {
-  *hora += hora_tmp;
-  *minuto += minuto_tmp;
-  if (*minuto == 60) {
-    *minuto = 0;
-    *hora = *hora + 1;
+void tratamento_de_horario(volatile unsigned int *arg_hora, volatile unsigned int *arg_minuto) {
+  *arg_hora += hora_tmp;
+  *arg_minuto += minuto_tmp;
+  if (*arg_minuto == 60) {
+    *arg_minuto = 0;
+    *arg_hora = *arg_hora + 1;
   }
-  if (*hora == 24) *hora = 0;  
+  if (*arg_hora == 24) *arg_hora = 0;  
 }
 
 void exibir_modo(int modo) {
@@ -166,10 +174,13 @@ void exibir_modo(int modo) {
   escreve_LCD(buffer);
 }
 
-void atualizar_exibicao(volatile unsigned int hora, volatile unsigned int minuto) {
-  hora_exib = hora;
-  minuto_exib = minuto;
-  blink_cursor();
+void atualizar_exibicao(volatile unsigned int arg_hora, volatile unsigned int arg_minuto) {
+  hora_exib = arg_hora;
+  minuto_exib = arg_minuto;
+  if (!test_bit(PINC, PC3)) {
+    sprintf(buffer, "%.2d:%.2d:%.2d", hora_exib, minuto_exib, segundo); 
+  }
+  else blink_cursor();
 }
 
 void blink_cursor() {
@@ -185,4 +196,11 @@ void blink_cursor() {
     sprintf(buffer, "%.2d:%.2d:%.2d", hora_exib, minuto_exib, segundo);                               
   }
   exibir_numero = !exibir_numero;      
+}
+
+void acionar_alarme() {
+  set_bit(PIND, PD3);
+}
+void desacionar_alarme() {
+  clear_bit(PIND, PD3);
 }
