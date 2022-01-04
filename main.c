@@ -2,6 +2,8 @@
  LEIA O README
  */
 
+// DEFINIÇÕES
+//=============================================================================================================
 #define F_CPU 16000000
 #define SECAO_HORA 0
 #define SECAO_MINUTO 1
@@ -9,18 +11,24 @@
 #define ALTERAR_ALARME 1
 #define ALTERAR_HORARIO 2
 #define FLAG_EXIBICAO 20 // para overflow de 10 us -> exibição será atualizada a cada {FLAG_EXIBICAO} ms
-#define FLAG_INCREMENTO 15 // para overflow de 10 us -> com botão pressionado, será incrementado a 
+#define FLAG_INCREMENTO 18 // para overflow de 10 us -> com botão pressionado, será incrementado a 
                            // cada {FLAG_INCREMENTO} ms
-#define test_bit(y, bit)    (y & (1 << bit)) // macro para teste de bit em um registrador
+#define botao_apertado(y,bit)  !(y&(1<<bit)) // macro para teste bit (botao) em um registrador y
+//=============================================================================================================
 
+
+// INCLUSÕES
+//=============================================================================================================
 #include <avr/io.h>
 #include <avr/interrupt.h>
 #include <util/delay.h> //pois é dependencia para a lib em LCD.h
 #include <stdio.h>
 #include "LCD.h"
+//=============================================================================================================
 
 
 // PROTÓTIPOS
+//=============================================================================================================
 ISR(TIMER0_OVF_vect);
 ISR(TIMER1_OVF_vect);
 ISR(PCINT0_vect);
@@ -33,8 +41,11 @@ void direcionar_incremento_de_horario();
 void atualizar_exibicao(volatile unsigned int arg_hora, volatile unsigned int arg_minuto);
 void tratamento_de_horario(volatile unsigned int *arg_hora, volatile unsigned int *arg_minuto);
 void incremento_e_tratamento_de_horario(volatile unsigned int *arg_hora, volatile unsigned int *arg_minuto);
+//=============================================================================================================
+
 
 // VARIÁVEIS GLOBAIS
+//=============================================================================================================
 volatile unsigned int hora = 0, minuto = 0, segundo = 0;
 volatile unsigned int hora_exib = 0, minuto_exib = 0;
 volatile unsigned int hora_alarme = 0, minuto_alarme = 0;
@@ -46,8 +57,11 @@ volatile unsigned int contador_timer0 = 0;
 volatile unsigned int contador_incremento = 0;
 volatile char buffer[9] = "        ";
 char modos[][13] = {"HORARIO     ", "ALT. ALARME ", "ALT. HORARIO"};
+//=============================================================================================================
 
 
+// FUNÇÃO PRINCIPAL
+//=============================================================================================================
 int main(void) {    
   // DISPLAY LCD E ATUADOR DO ALARME
   DDRD = 0b11111000;
@@ -72,28 +86,30 @@ int main(void) {
   sei(); // habilitando chave geral de interrupções
   
   // LCD    
-  inic_LCD_4bits();
-  
-  hora = 24;
-  minuto = 00;
+  inic_LCD_4bits();  
+  hora = 14;
+  minuto = 50;
+  segundo = 0;
   hora_alarme = 13;
-  minuto_alarme = 30;
+  minuto_alarme = 50;
     
   while (1) {
     if (hora_alarme == hora && minuto_alarme == minuto) {
       acionar_alarme();
-      
     }
     else desacionar_alarme(); 
   }
 }
+//=============================================================================================================
+
 
 // TRTAMENTO DE INTERRUPÇÕES
+//=============================================================================================================
 ISR(TIMER0_OVF_vect) {
   // DESCRIÇÃO: CONTROLE DA TAXA DE EXIBIÇÃO DO MODO E DO INCREMENTO CONTÍNUO PELO USUÁRIO
   TCNT0 = 100;
   contador_timer0++;
-  if (!test_bit(PINC, PC3)) {
+  if (botao_apertado(PINC, PC3)) {
     // ESSE BLOCO: IRÁ INCREMENTAR A UMA TAXA "CONTINUA" ENQUANTO O BOTÃO FOR PRESSIONADO
     contador_incremento++;
     if (contador_incremento == FLAG_INCREMENTO) {
@@ -126,7 +142,7 @@ ISR(TIMER1_OVF_vect) {
 
 ISR(PCINT0_vect) {
   // DESCRIÇÃO: CONTROLE DO ESTADO DE QUAL MODO SERÁ EXIBIDO
-  if (!test_bit(PINB, PB4)) {
+  if (botao_apertado(PINB, PB4)) {
     modo++;
     if (modo == 3) modo = 0;
     cursor = SECAO_HORA;
@@ -136,15 +152,18 @@ ISR(PCINT0_vect) {
 ISR(PCINT1_vect) {
   // DESCRIÇÃO: CONTROLE DO MAPEAMETO DO CURSOR PISCANTE E DA FINALIZAÇÃO PELO
   //            USUÁRIO DO INCREMENTO DO NÚMERO DA SEÇÃO CUJO CURSOR ESTÁ APONTANDO
-  if (!test_bit(PINC, PC2)) {
+  if (botao_apertado(PINC, PC2)) {
     cursor = !cursor; // seu mapeamento é entre os números 0 e 1      
   }  
-  if (test_bit(PINC, PC3)) {
+  if (!botao_apertado(PINC, PC3)) {
     contador_incremento = 0;
   }
 }
+//=============================================================================================================
+
 
 // FUNÇÕES AUXILIARES
+//=============================================================================================================
 void direcionar_incremento_de_horario() {
   hora_tmp = minuto_tmp = 0; // variáveis temporárias
   if (cursor == SECAO_HORA) hora_tmp++;
@@ -193,7 +212,7 @@ void atualizar_exibicao(volatile unsigned int arg_hora, volatile unsigned int ar
   tratamento_de_horario(&arg_hora, &arg_minuto);
   hora_exib = arg_hora;
   minuto_exib = arg_minuto;  
-  if (!test_bit(PINC, PC3)) {
+  if (botao_apertado(PINC, PC3)) {
     sprintf(buffer, "%.2d:%.2d:%.2d", hora_exib, minuto_exib, segundo); 
   }
   else blink_cursor();
@@ -221,3 +240,4 @@ void acionar_alarme() {
 void desacionar_alarme() {
   PORTD &= ~(1 << PD3);
 }
+//=============================================================================================================
